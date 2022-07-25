@@ -72,7 +72,7 @@ int main(int argc, char **argv)
 
 	params.cmdname = *argv;
 
-	while ((opt = getopt(argc, argv, "hlo:T:p:V")) != -1) {
+	while ((opt = getopt(argc, argv, "hlo:e:T:p:V")) != -1) {
 		switch (opt) {
 		case 'l':
 			params.lflag = 1;
@@ -80,6 +80,10 @@ int main(int argc, char **argv)
 		case 'o':
 			params.outfile = optarg;
 			params.iflag = 1;
+			break;
+		case 'e':
+			params.outfile = optarg;
+			params.eflag = 1;
 			break;
 		case 'T':
 			params.type = genimg_get_type_id(optarg);
@@ -120,7 +124,7 @@ int main(int argc, char **argv)
 
 	/* set tparams as per input type_id */
 	tparams = imagetool_get_type(params.type);
-	if (!params.lflag && tparams == NULL) {
+	if (!params.lflag && tparams == NULL && !params.eflag) {
 		fprintf(stderr, "%s: unsupported type: %s\n",
 			params.cmdname, genimg_get_type_name(params.type));
 		exit(EXIT_FAILURE);
@@ -138,8 +142,14 @@ int main(int argc, char **argv)
 		}
 	}
 
-	if (!params.lflag && !params.outfile) {
+	if (!params.lflag && !params.outfile && !params.eflag) {
 		fprintf(stderr, "%s: No output file provided\n",
+			params.cmdname);
+		exit(EXIT_FAILURE);
+	}
+
+	if (!params.eflag && !params.outfile) {
+		fprintf(stderr, "%s: No output path provided\n",
 			params.cmdname);
 		exit(EXIT_FAILURE);
 	}
@@ -175,12 +185,46 @@ int main(int argc, char **argv)
 	 * supported image types and verify the input image file
 	 * header for match
 	 */
-	if (params.iflag) {
+	if (params.iflag && !params.eflag) {
 		/*
 		 * Extract the data files from within the matched
 		 * image type. Returns the error code if not matched
 		 */
 		retval = dumpimage_extract_subimage(tparams, ptr, &sbuf);
+		if (retval)
+			fprintf(stderr, "%s: Can't extract subimage from %s\n",
+				params.cmdname, params.imagefile);
+	} else if (!params.iflag && params.eflag){
+		retval = -1;
+		struct image_type_params **curr;
+		INIT_SECTION(image_type);
+
+		struct image_type_params **start = __start_image_type;
+		struct image_type_params **end = __stop_image_type;
+
+		for (curr = start; curr != end; curr++) {
+			if ((*curr)->verify_header) {
+				retval = (*curr)->verify_header((unsigned char *)ptr,
+								sbuf.st_size, &params);
+				if (retval != 0) {
+					continue;
+				} else if ((*curr)->extract_subimage) {
+					fprintf(stdout, "%s: Using %s to extract\n",
+						params.cmdname, (*curr)->name);
+
+					retval = (*curr)->extract_subimage(ptr, &params);
+					if (retval != 0) {
+						fprintf(stderr, "%s: extract_subimage failed for %s, error: %d\n",
+							params.cmdname, (*curr)->name, retval);
+						retval = -3;
+						break;
+					} else {
+						retval = 0;
+						break;
+					}
+				}
+			}
+		}
 		if (retval)
 			fprintf(stderr, "%s: Can't extract subimage from %s\n",
 				params.cmdname, params.imagefile);
@@ -210,6 +254,10 @@ static void usage(void)
 		"          -T ==> declare image type as 'type'\n"
 		"          -p ==> 'position' (starting at 0) of the component to extract from image\n"
 		"          -o ==> extract component to file 'outfile'\n",
+		params.cmdname);
+	fprintf(stderr,
+		"       %s image\n"
+		"          -e ==> extract all component to directory\n",
 		params.cmdname);
 	fprintf(stderr,
 		"       %s -h ==> print usage information and exit\n",

@@ -45,8 +45,9 @@ int imagetool_verify_print_header(
 	struct image_type_params **start = __start_image_type;
 	struct image_type_params **end = __stop_image_type;
 
-	if (tparams)
+	if (tparams) {
 		return imagetool_verify_print_header_by_type(ptr, sbuf, tparams, params);
+	}
 
 	for (curr = start; curr != end; curr++) {
 		if ((*curr)->verify_header) {
